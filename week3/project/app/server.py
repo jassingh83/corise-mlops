@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from loguru import logger
-
+from datetime import datetime, timedelta
 from classifier import NewsCategoryClassifier
 
 
@@ -21,7 +21,8 @@ MODEL_PATH = "../data/news_classifier.joblib"
 LOGS_OUTPUT_PATH = "../data/logs.out"
 
 app = FastAPI()
-
+news_classifier = None
+log_file = None
 
 @app.on_event("startup")
 def startup_event():
@@ -34,6 +35,15 @@ def startup_event():
     Access to the model instance and log file will be needed in /predict endpoint, make sure you
     store them as global variables
     """
+    global news_classifier
+    global log_file
+    global LOGS_OUTPUT_PATH
+    global MODEL_PATH
+
+    news_classifier = NewsCategoryClassifier()
+    news_classifier.load(MODEL_PATH)
+    
+    log_file = open(LOGS_OUTPUT_PATH,  "w")
     logger.info("Setup completed")
 
 
@@ -45,6 +55,8 @@ def shutdown_event():
     1. Make sure to flush the log file and close any file pointers to avoid corruption
     2. Any other cleanups
     """
+    log_file.flush()
+    log_file.close()
     logger.info("Shutting down application")
 
 
@@ -65,7 +77,30 @@ def predict(request: PredictRequest):
     }
     3. Construct an instance of `PredictResponse` and return
     """
-    response = PredictResponse(scores={"label1": 0.9, "label2": 0.1}, label="label1")
+    # response = PredictResponse(scores={"label1": 0.9, "label2": 0.1}, label="label1")
+
+    global log_file
+    global news_classifier
+
+    start_time = datetime.now()
+    # scores = news_classifier.predict_proba({"description": request.description})
+    # label = news_classifier.predict_label({"description": request.description})
+    scores = news_classifier.predict_proba(request.__dict__)
+    label = news_classifier.predict_label(request.__dict__)
+    
+    response = PredictResponse(scores=scores, label=label)
+    end_time = datetime.now()
+    time_taken = (end_time - start_time).total_seconds() * 1000
+
+    log_entry = {
+        'timestamp': str(start_time),
+        'request': str(request.__dict__),
+        'prediction': str(response.__dict__),
+        'latency': time_taken
+    }
+
+    log_file.write(str(log_entry) + "\n")
+    
     return response
 
 
